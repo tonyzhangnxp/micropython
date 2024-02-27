@@ -138,6 +138,9 @@ uint32_t trng_random_u32(void);
 #define MICROPY_PY_THREAD (0)
 #endif
 
+#ifndef MICROPY_PY_PYB
+#define MICROPY_PY_PYB (0)
+#endif
 
 #ifndef MICROPY_PY_BLUETOOTH_ENABLE_CENTRAL_MODE
 #define MICROPY_PY_BLUETOOTH_ENABLE_CENTRAL_MODE (1)

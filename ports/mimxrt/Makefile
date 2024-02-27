@@ -223,7 +223,7 @@ SRC_C += \
 	mpthreadport.c \
 	pybthread.c\
 	gccollect.c\
-
+	machine2pyb.c\
 
 SHARED_SRC_C += \
 	shared/libc/printf.c \
