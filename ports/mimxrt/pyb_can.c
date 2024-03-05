@@ -3,7 +3,7 @@
  *
  * The MIT License (MIT)
  *
- * Copyright (c) 2023 Kwabena W. Agyeman
+ * Copyright (c) 2014-2018 
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,7 +24,8 @@
  * THE SOFTWARE.
  */
 
-#include "py/obj.h"
+#include <string.h>
+
 #include "py/objarray.h"
 #include "py/runtime.h"
 #include "py/gc.h"
@@ -32,14 +33,14 @@
 #include "py/stream.h"
 #include "py/mperrno.h"
 #include "py/mphal.h"
-#include "shared/runtime/mpirq.h"
 #include "modmachine.h"
+
 #include CLOCK_CONFIG_H
 
-#include "fsl_flexcan.h"
 #include "fsl_iomuxc.h"
 
-#if 1//(MICROPY_HW_ENABLE_CAN && (!MICROPY_PY_PYB))
+#if 0//MICROPY_HW_ENABLE_CAN
+#include "fsl_flexcan.h"
 
 #define CAN_MAX_DATA_FRAME              (8)
 
@@ -65,7 +66,7 @@ enum {
 #define CTX (iomux_table[index])
 #define CRX (iomux_table[index + 1])
 
-typedef struct _machine_can_obj_t {
+typedef struct _pyb_can_obj_t {
     mp_obj_base_t base;
     uint8_t can_id;
     uint8_t can_hw_id;
@@ -79,7 +80,7 @@ typedef struct _machine_can_obj_t {
     uint16_t num_error_warning;
     uint16_t num_error_passive;
     uint16_t num_bus_off;
-} machine_can_obj_t;
+} pyb_can_obj_t;
 
 typedef struct _iomux_table_t {
     uint32_t muxRegister;
@@ -120,12 +121,12 @@ bool can_set_iomux(int8_t can) {
     }
 }
 
-void machine_can_handler(CAN_Type *base) {
-    machine_can_obj_t *self = NULL;
+void pyb_can_handler(CAN_Type *base) {
+    pyb_can_obj_t *self = NULL;
     for (int i = 0; i < MICROPY_HW_NUM_CAN_IRQS; ++i) {
-        machine_can_obj_t *machine_can_obj = MP_STATE_PORT(machine_can_objects[i]);
-        if ((machine_can_obj != NULL) && (machine_can_obj->can_inst == base)) {
-            self = machine_can_obj;
+        pyb_can_obj_t *pyb_can_obj = MP_STATE_PORT(pyb_can_objects[i]);
+        if ((pyb_can_obj != NULL) && (pyb_can_obj->can_inst == base)) {
+            self = pyb_can_obj;
             break;
         }
     }
@@ -178,24 +179,24 @@ void machine_can_handler(CAN_Type *base) {
 
 #if defined(CAN1)
 void CAN1_IRQHandler(void) {
-    machine_can_handler(CAN1);
+    pyb_can_handler(CAN1);
 }
 #endif
 
 #if defined(CAN2)
 void CAN2_IRQHandler(void) {
-    machine_can_handler(CAN2);
+    pyb_can_handler(CAN2);
 }
 #endif
 
 #if defined(CAN3)
 void CAN3_IRQHandler(void) {
-    machine_can_handler(CAN3);
+    pyb_can_handler(CAN3);
 }
 #endif
 
-static void machine_flexcan_deinit(machine_can_obj_t *self) {
-    if (MP_STATE_PORT(machine_can_objects[self->can_id]) != NULL) {
+static void pyb_flexcan_deinit(pyb_can_obj_t *self) {
+    if (MP_STATE_PORT(pyb_can_objects[self->can_id]) != NULL) {
         mp_uint_t instance = FLEXCAN_GetInstance(self->can_inst);
         DisableIRQ(((IRQn_Type [])CAN_Rx_Warning_IRQS)[instance]);
         DisableIRQ(((IRQn_Type [])CAN_Tx_Warning_IRQS)[instance]);
@@ -207,24 +208,14 @@ static void machine_flexcan_deinit(machine_can_obj_t *self) {
             kFLEXCAN_RxWarningInterruptEnable | kFLEXCAN_TxWarningInterruptEnable);
         FLEXCAN_DisableMbInterrupts(self->can_inst,
             kFLEXCAN_RxFifoOverflowFlag | kFLEXCAN_RxFifoWarningFlag | kFLEXCAN_RxFifoFrameAvlFlag);
-        MP_STATE_PORT(machine_can_objects[self->can_id]) = NULL;
+        MP_STATE_PORT(pyb_can_objects[self->can_id]) = NULL;
         self->is_enabled = false;
         FLEXCAN_Deinit(self->can_inst);
     }
 }
 
-// Deinit all can IRQ handlers.
-void machine_can_irq_deinit(void) {
-    for (int i = 0; i < MICROPY_HW_NUM_CAN_IRQS; ++i) {
-        machine_can_obj_t *machine_can_obj = MP_STATE_PORT(machine_can_objects[i]);
-        if (machine_can_obj != NULL) {
-            machine_flexcan_deinit(machine_can_obj);
-        }
-    }
-}
-
-STATIC void machine_can_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
-    machine_can_obj_t *self = MP_OBJ_TO_PTR(self_in);
+STATIC void pyb_can_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
+    pyb_can_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (!self->is_enabled) {
         mp_printf(print, "CAN(%u)", self->can_id);
     } else {
@@ -246,7 +237,7 @@ STATIC void machine_can_print(const mp_print_t *print, mp_obj_t self_in, mp_prin
     }
 }
 
-STATIC mp_obj_t machine_can_init_helper(machine_can_obj_t *self, size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+STATIC mp_obj_t pyb_can_init_helper(pyb_can_obj_t *self, size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     enum { ARG_mode, ARG_auto_restart, ARG_baudrate };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_mode,         MP_ARG_REQUIRED | MP_ARG_INT,   {.u_int = CAN_NORMAL_MODE} },
@@ -258,7 +249,7 @@ STATIC mp_obj_t machine_can_init_helper(machine_can_obj_t *self, size_t n_args, 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    machine_flexcan_deinit(self);
+    pyb_flexcan_deinit(self);
 
     // Initialise the CAN peripheral.
     self->flexcan_config->enableLoopBack = args[ARG_mode].u_int & CAN_LOOPBACK_FLAG;
@@ -281,6 +272,7 @@ STATIC mp_obj_t machine_can_init_helper(machine_can_obj_t *self, size_t n_args, 
     #else
     sourceClock_Hz = BOARD_BOOTCLOCKRUN_CAN_CLK_ROOT;
     #endif
+
     FLEXCAN_Init(self->can_inst, self->flexcan_config, sourceClock_Hz);
     memset(self->flexcan_rx_fifo_config->idFilterTable, 0,
         sizeof(uint32_t) * self->flexcan_rx_fifo_config->idFilterNum);
@@ -312,7 +304,7 @@ STATIC mp_obj_t machine_can_init_helper(machine_can_obj_t *self, size_t n_args, 
     self->num_error_passive = 0;
     self->num_bus_off = 0;
 
-    MP_STATE_PORT(machine_can_objects[self->can_id]) = self;
+    MP_STATE_PORT(pyb_can_objects[self->can_id]) = self;
 
     FLEXCAN_EnableMbInterrupts(self->can_inst,
         kFLEXCAN_RxFifoOverflowFlag | kFLEXCAN_RxFifoWarningFlag | kFLEXCAN_RxFifoFrameAvlFlag);
@@ -328,13 +320,11 @@ STATIC mp_obj_t machine_can_init_helper(machine_can_obj_t *self, size_t n_args, 
     EnableIRQ(((IRQn_Type [])CAN_Bus_Off_IRQS)[instance]);
     EnableIRQ(((IRQn_Type [])CAN_ORed_Message_buffer_IRQS)[instance]);
 
-    (void)EnableIRQ(CAN2_IRQn);
-
     return MP_OBJ_FROM_PTR(self);
 }
 
 // CAN(bus, ...)
-mp_obj_t machine_can_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
+mp_obj_t pyb_can_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
     // check arguments
     mp_arg_check_num(n_args, n_kw, 1, MP_OBJ_FUN_ARGS_MAX, true);
 
@@ -346,7 +336,7 @@ mp_obj_t machine_can_make_new(const mp_obj_type_t *type, size_t n_args, size_t n
 
     // Get peripheral object.
     mp_uint_t can_hw_id = can_index_table[can_id];  // the hw can number 1..n
-    machine_can_obj_t *self = mp_obj_malloc(machine_can_obj_t, &machine_can_type);
+    pyb_can_obj_t *self = mp_obj_malloc(pyb_can_obj_t, &pyb_can_type);
     self->can_id = can_id;
     self->can_inst = can_base_ptr_table[can_hw_id];
     self->can_hw_id = can_hw_id;
@@ -369,29 +359,29 @@ mp_obj_t machine_can_make_new(const mp_obj_type_t *type, size_t n_args, size_t n
     if (can_present) {
         mp_map_t kw_args;
         mp_map_init_fixed_table(&kw_args, n_kw, args + n_args);
-        return machine_can_init_helper(self, n_args - 1, args + 1, &kw_args);
+        return pyb_can_init_helper(self, n_args - 1, args + 1, &kw_args);
     } else {
         return mp_const_none;
     }
 }
 
 // can.init(mode, [kwargs])
-STATIC mp_obj_t machine_can_init(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args) {
-    return machine_can_init_helper(args[0], n_args - 1, args + 1, kw_args);
+STATIC mp_obj_t pyb_can_init(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args) {
+    return pyb_can_init_helper(args[0], n_args - 1, args + 1, kw_args);
 }
-MP_DEFINE_CONST_FUN_OBJ_KW(machine_can_init_obj, 1, machine_can_init);
+MP_DEFINE_CONST_FUN_OBJ_KW(pyb_can_init_obj, 1, pyb_can_init);
 
 // deinit()
-STATIC mp_obj_t machine_can_deinit(mp_obj_t self_in) {
-    machine_can_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    machine_flexcan_deinit(self);
+STATIC mp_obj_t pyb_can_deinit(mp_obj_t self_in) {
+    pyb_can_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    pyb_flexcan_deinit(self);
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_can_deinit_obj, machine_can_deinit);
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(pyb_can_deinit_obj, pyb_can_deinit);
 
 // Force a software restart of the controller, to allow transmission after a bus error
-STATIC mp_obj_t machine_can_restart(mp_obj_t self_in) {
-    machine_can_obj_t *self = MP_OBJ_TO_PTR(self_in);
+STATIC mp_obj_t pyb_can_restart(mp_obj_t self_in) {
+    pyb_can_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (!self->is_enabled) {
         mp_raise_ValueError(MP_ERROR_TEXT("CAN bus not enabled"));
     }
@@ -406,11 +396,11 @@ STATIC mp_obj_t machine_can_restart(mp_obj_t self_in) {
     }
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_can_restart_obj, machine_can_restart);
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(pyb_can_restart_obj, pyb_can_restart);
 
 // Get the state of the controller
-STATIC mp_obj_t machine_can_state(mp_obj_t self_in) {
-    machine_can_obj_t *self = MP_OBJ_TO_PTR(self_in);
+STATIC mp_obj_t pyb_can_state(mp_obj_t self_in) {
+    pyb_can_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (self->is_enabled) {
         uint32_t result = FLEXCAN_GetStatusFlags(self->can_inst);
         uint32_t flt_conf = (result & CAN_ESR1_FLTCONF_MASK) >> CAN_ESR1_FLTCONF_SHIFT;
@@ -428,9 +418,9 @@ STATIC mp_obj_t machine_can_state(mp_obj_t self_in) {
     }
     return MP_OBJ_NEW_SMALL_INT(CAN_STATE_STOPPED);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_can_state_obj, machine_can_state);
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(pyb_can_state_obj, pyb_can_state);
 
-static mp_uint_t can_count_txmb_pending(machine_can_obj_t *self) {
+static mp_uint_t can_count_txmb_pending(pyb_can_obj_t *self) {
     mp_uint_t count = 0;
     for (mp_uint_t i = 0; i < self->flexcan_txmb_count; i++) {
         uint32_t cs_temp = self->can_inst->MB[self->flexcan_txmb_start + i].CS;
@@ -442,8 +432,8 @@ static mp_uint_t can_count_txmb_pending(machine_can_obj_t *self) {
 }
 
 // Get info about error states and TX/RX buffers
-STATIC mp_obj_t machine_can_info(size_t n_args, const mp_obj_t *args) {
-    machine_can_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+STATIC mp_obj_t pyb_can_info(size_t n_args, const mp_obj_t *args) {
+    pyb_can_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     if (!self->is_enabled) {
         mp_raise_ValueError(MP_ERROR_TEXT("CAN bus not enabled"));
     }
@@ -474,11 +464,11 @@ STATIC mp_obj_t machine_can_info(size_t n_args, const mp_obj_t *args) {
 
     return MP_OBJ_FROM_PTR(list);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_can_info_obj, 1, 2, machine_can_info);
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pyb_can_info_obj, 1, 2, pyb_can_info);
 
 // any(fifo) - return `True` if any message waiting on the FIFO, else `False`
-STATIC mp_obj_t machine_can_any(mp_obj_t self_in, mp_obj_t fifo_in) {
-    machine_can_obj_t *self = MP_OBJ_TO_PTR(self_in);
+STATIC mp_obj_t pyb_can_any(mp_obj_t self_in, mp_obj_t fifo_in) {
+    pyb_can_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (!self->is_enabled) {
         mp_raise_ValueError(MP_ERROR_TEXT("CAN bus not enabled"));
     }
@@ -491,9 +481,9 @@ STATIC mp_obj_t machine_can_any(mp_obj_t self_in, mp_obj_t fifo_in) {
     }
     return mp_const_false;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_2(machine_can_any_obj, machine_can_any);
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(pyb_can_any_obj, pyb_can_any);
 
-static mp_uint_t can_find_txmb(machine_can_obj_t *self, flexcan_frame_t *frame) {
+static mp_uint_t can_find_txmb(pyb_can_obj_t *self, flexcan_frame_t *frame) {
     // See if this frame id has been used before. If so, re-use the same mailbox to keep message ordering.
     for (mp_uint_t i = 0; i < self->flexcan_txmb_count; i++) {
         uint32_t cs_temp = self->can_inst->MB[self->flexcan_txmb_start + i].CS;
@@ -517,7 +507,7 @@ static mp_uint_t can_find_txmb(machine_can_obj_t *self, flexcan_frame_t *frame) 
     return 0;
 }
 
-STATIC mp_obj_t machine_can_send(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+STATIC mp_obj_t pyb_can_send(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     enum { ARG_data, ARG_id, ARG_timeout, ARG_rtr, ARG_extframe };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_data,     MP_ARG_REQUIRED | MP_ARG_OBJ,   {.u_obj = MP_OBJ_NULL} },
@@ -528,7 +518,7 @@ STATIC mp_obj_t machine_can_send(size_t n_args, const mp_obj_t *pos_args, mp_map
     };
 
     // parse args
-    machine_can_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+    pyb_can_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
     if (!self->is_enabled) {
         mp_raise_ValueError(MP_ERROR_TEXT("CAN bus not enabled"));
     }
@@ -613,10 +603,10 @@ STATIC mp_obj_t machine_can_send(size_t n_args, const mp_obj_t *pos_args, mp_map
 
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_KW(machine_can_send_obj, 1, machine_can_send);
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(pyb_can_send_obj, 1, pyb_can_send);
 
 // recv(fifo, list=None, *, timeout=5000)
-STATIC mp_obj_t machine_can_recv(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+STATIC mp_obj_t pyb_can_recv(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     enum { ARG_fifo, ARG_list, ARG_timeout, ARG_fdf };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_fifo,    MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0} },
@@ -625,7 +615,7 @@ STATIC mp_obj_t machine_can_recv(size_t n_args, const mp_obj_t *pos_args, mp_map
     };
 
     // parse args
-    machine_can_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+    pyb_can_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
     if (!self->is_enabled) {
         mp_raise_ValueError(MP_ERROR_TEXT("CAN bus not enabled"));
     }
@@ -733,16 +723,16 @@ STATIC mp_obj_t machine_can_recv(size_t n_args, const mp_obj_t *pos_args, mp_map
     // Return the result
     return ret_obj;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_KW(machine_can_recv_obj, 1, machine_can_recv);
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(pyb_can_recv_obj, 1, pyb_can_recv);
 
-STATIC mp_obj_t machine_can_clearfilter(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+STATIC mp_obj_t pyb_can_clearfilter(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     enum { ARG_extframe };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_extframe, MP_ARG_BOOL, {.u_bool = false} },
     };
 
     // parse args
-    machine_can_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+    pyb_can_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
     if (!self->is_enabled) {
         mp_raise_ValueError(MP_ERROR_TEXT("CAN bus not enabled"));
     }
@@ -762,10 +752,10 @@ STATIC mp_obj_t machine_can_clearfilter(size_t n_args, const mp_obj_t *pos_args,
 
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_KW(machine_can_clearfilter_obj, 2, machine_can_clearfilter);
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(pyb_can_clearfilter_obj, 2, pyb_can_clearfilter);
 
 // setfilter(bank, mode, fifo, params, *, rtr)
-STATIC mp_obj_t machine_can_setfilter(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+STATIC mp_obj_t pyb_can_setfilter(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     enum { ARG_bank, ARG_mode, ARG_fifo, ARG_params, ARG_rtr, ARG_extframe };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_bank,     MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0} },
@@ -777,7 +767,7 @@ STATIC mp_obj_t machine_can_setfilter(size_t n_args, const mp_obj_t *pos_args, m
     };
 
     // parse args
-    machine_can_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+    pyb_can_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
     if (!self->is_enabled) {
         mp_raise_ValueError(MP_ERROR_TEXT("CAN bus not enabled"));
     }
@@ -808,7 +798,6 @@ STATIC mp_obj_t machine_can_setfilter(size_t n_args, const mp_obj_t *pos_args, m
         if (len != 2) {
             goto error;
         }
-
         if (args[ARG_rtr].u_obj != MP_OBJ_NULL) {
             if (rtr_len != 2) {
                 goto error;
@@ -816,7 +805,6 @@ STATIC mp_obj_t machine_can_setfilter(size_t n_args, const mp_obj_t *pos_args, m
             rtr_masks[0] = mp_obj_is_true(rtr_flags[0]);
             rtr_masks[1] = mp_obj_is_true(rtr_flags[1]);
         }
-
         mp_uint_t id0 = mp_obj_get_int(params[0]);
         mp_uint_t id1 = mp_obj_get_int(params[1]);
         if (args[ARG_extframe].u_bool) {
@@ -826,27 +814,24 @@ STATIC mp_obj_t machine_can_setfilter(size_t n_args, const mp_obj_t *pos_args, m
             id0 = FLEXCAN_ID_STD(id0);
             id1 = FLEXCAN_ID_STD(id1);
         }
-
         id0 = ((rtr_masks[0] << 30) | id0) << 1;
         id1 = ((rtr_masks[1] << 30) | id1) << 1;
         self->flexcan_rx_fifo_config->idFilterTable[bank * 2] = id0;
         self->flexcan_rx_fifo_config->idFilterTable[(bank * 2) + 1] = id1;
-        
-
     } else {
         goto error;
     }
-    
+
     FLEXCAN_SetRxFifoConfig(self->can_inst, self->flexcan_rx_fifo_config, true);
 
     return mp_const_none;
 error:
     mp_raise_ValueError(MP_ERROR_TEXT("CAN filter parameter error"));
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_KW(machine_can_setfilter_obj, 1, machine_can_setfilter);
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(pyb_can_setfilter_obj, 1, pyb_can_setfilter);
 
-STATIC mp_obj_t machine_can_rxcallback(mp_obj_t self_in, mp_obj_t fifo_in, mp_obj_t callback_in) {
-    machine_can_obj_t *self = MP_OBJ_TO_PTR(self_in);
+STATIC mp_obj_t pyb_can_rxcallback(mp_obj_t self_in, mp_obj_t fifo_in, mp_obj_t callback_in) {
+    pyb_can_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (!self->is_enabled) {
         mp_raise_ValueError(MP_ERROR_TEXT("CAN bus not enabled"));
     }
@@ -857,21 +842,21 @@ STATIC mp_obj_t machine_can_rxcallback(mp_obj_t self_in, mp_obj_t fifo_in, mp_ob
     self->callback = callback_in;
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_3(machine_can_rxcallback_obj, machine_can_rxcallback);
+STATIC MP_DEFINE_CONST_FUN_OBJ_3(pyb_can_rxcallback_obj, pyb_can_rxcallback);
 
-STATIC const mp_rom_map_elem_t machine_can_locals_dict_table[] = {
+STATIC const mp_rom_map_elem_t pyb_can_locals_dict_table[] = {
     // instance methods
-    { MP_ROM_QSTR(MP_QSTR_init), MP_ROM_PTR(&machine_can_init_obj) },
-    { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&machine_can_deinit_obj) },
-    { MP_ROM_QSTR(MP_QSTR_restart), MP_ROM_PTR(&machine_can_restart_obj) },
-    { MP_ROM_QSTR(MP_QSTR_state), MP_ROM_PTR(&machine_can_state_obj) },
-    { MP_ROM_QSTR(MP_QSTR_info), MP_ROM_PTR(&machine_can_info_obj) },
-    { MP_ROM_QSTR(MP_QSTR_any), MP_ROM_PTR(&machine_can_any_obj) },
-    { MP_ROM_QSTR(MP_QSTR_send), MP_ROM_PTR(&machine_can_send_obj) },
-    { MP_ROM_QSTR(MP_QSTR_recv), MP_ROM_PTR(&machine_can_recv_obj) },
-    { MP_ROM_QSTR(MP_QSTR_setfilter), MP_ROM_PTR(&machine_can_setfilter_obj) },
-    { MP_ROM_QSTR(MP_QSTR_clearfilter), MP_ROM_PTR(&machine_can_clearfilter_obj) },
-    { MP_ROM_QSTR(MP_QSTR_rxcallback), MP_ROM_PTR(&machine_can_rxcallback_obj) },
+    { MP_ROM_QSTR(MP_QSTR_init), MP_ROM_PTR(&pyb_can_init_obj) },
+    { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&pyb_can_deinit_obj) },
+    { MP_ROM_QSTR(MP_QSTR_restart), MP_ROM_PTR(&pyb_can_restart_obj) },
+    { MP_ROM_QSTR(MP_QSTR_state), MP_ROM_PTR(&pyb_can_state_obj) },
+    { MP_ROM_QSTR(MP_QSTR_info), MP_ROM_PTR(&pyb_can_info_obj) },
+    { MP_ROM_QSTR(MP_QSTR_any), MP_ROM_PTR(&pyb_can_any_obj) },
+    { MP_ROM_QSTR(MP_QSTR_send), MP_ROM_PTR(&pyb_can_send_obj) },
+    { MP_ROM_QSTR(MP_QSTR_recv), MP_ROM_PTR(&pyb_can_recv_obj) },
+    { MP_ROM_QSTR(MP_QSTR_setfilter), MP_ROM_PTR(&pyb_can_setfilter_obj) },
+    { MP_ROM_QSTR(MP_QSTR_clearfilter), MP_ROM_PTR(&pyb_can_clearfilter_obj) },
+    { MP_ROM_QSTR(MP_QSTR_rxcallback), MP_ROM_PTR(&pyb_can_rxcallback_obj) },
 
     // class constants
     { MP_ROM_QSTR(MP_QSTR_NORMAL), MP_ROM_INT(CAN_NORMAL_MODE) },
@@ -888,10 +873,10 @@ STATIC const mp_rom_map_elem_t machine_can_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_ERROR_PASSIVE), MP_ROM_INT(CAN_STATE_ERROR_PASSIVE) },
     { MP_ROM_QSTR(MP_QSTR_BUS_OFF), MP_ROM_INT(CAN_STATE_BUS_OFF) },
 };
-STATIC MP_DEFINE_CONST_DICT(machine_can_locals_dict, machine_can_locals_dict_table);
+STATIC MP_DEFINE_CONST_DICT(pyb_can_locals_dict, pyb_can_locals_dict_table);
 
 STATIC mp_uint_t can_ioctl(mp_obj_t self_in, mp_uint_t request, uintptr_t arg, int *errcode) {
-    machine_can_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    pyb_can_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_uint_t ret;
     if (self->is_enabled && request == MP_STREAM_POLL) {
         uintptr_t flags = arg;
@@ -919,15 +904,45 @@ STATIC const mp_stream_p_t can_stream_p = {
 };
 
 MP_DEFINE_CONST_OBJ_TYPE(
-    machine_can_type,
+    pyb_can_type,
     MP_QSTR_CAN,
     MP_TYPE_FLAG_NONE,
-    make_new, machine_can_make_new,
-    print, machine_can_print,
+    make_new, pyb_can_make_new,
+    print, pyb_can_print,
     protocol, &can_stream_p,
-    locals_dict, &machine_can_locals_dict
+    locals_dict, &pyb_can_locals_dict
     );
 
-MP_REGISTER_ROOT_POINTER(void *machine_can_objects[MICROPY_HW_NUM_CAN_IRQS]);
+MP_REGISTER_ROOT_POINTER(void *pyb_can_objects[MICROPY_HW_NUM_CAN_IRQS]);
+
+
+static void machine_flexcan_deinit(pyb_can_obj_t *self) {
+    if (MP_STATE_PORT(pyb_can_objects[self->can_id]) != NULL) {
+        mp_uint_t instance = FLEXCAN_GetInstance(self->can_inst);
+        DisableIRQ(((IRQn_Type [])CAN_Rx_Warning_IRQS)[instance]);
+        DisableIRQ(((IRQn_Type [])CAN_Tx_Warning_IRQS)[instance]);
+        DisableIRQ(((IRQn_Type [])CAN_Error_IRQS)[instance]);
+        DisableIRQ(((IRQn_Type [])CAN_Bus_Off_IRQS)[instance]);
+        DisableIRQ(((IRQn_Type [])CAN_ORed_Message_buffer_IRQS)[instance]);
+        FLEXCAN_DisableInterrupts(self->can_inst,
+            kFLEXCAN_BusOffInterruptEnable | kFLEXCAN_ErrorInterruptEnable |
+            kFLEXCAN_RxWarningInterruptEnable | kFLEXCAN_TxWarningInterruptEnable);
+        FLEXCAN_DisableMbInterrupts(self->can_inst,
+            kFLEXCAN_RxFifoOverflowFlag | kFLEXCAN_RxFifoWarningFlag | kFLEXCAN_RxFifoFrameAvlFlag);
+        MP_STATE_PORT(pyb_can_objects[self->can_id]) = NULL;
+        self->is_enabled = false;
+        FLEXCAN_Deinit(self->can_inst);
+    }
+}
+
+// Deinit all can IRQ handlers.
+void machine_can_irq_deinit(void) {
+    for (int i = 0; i < MICROPY_HW_NUM_CAN_IRQS; ++i) {
+        pyb_can_obj_t *pyb_can_obj = MP_STATE_PORT(pyb_can_objects[i]);
+        if (pyb_can_obj != NULL) {
+            machine_flexcan_deinit(pyb_can_obj);
+        }
+    }
+}
 
 #endif // MICROPY_HW_ENABLE_CAN

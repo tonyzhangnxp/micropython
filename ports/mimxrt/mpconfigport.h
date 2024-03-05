@@ -127,6 +127,11 @@ uint32_t trng_random_u32(void);
 #ifndef MICROPY_PY_SOCKET
 #define MICROPY_PY_SOCKET                   (1)
 #endif
+
+#ifndef MICROPY_HW_ENABLE_CAN
+#define MICROPY_HW_ENABLE_CAN (0)
+#endif
+
 #define MICROPY_PY_WEBSOCKET                (MICROPY_PY_LWIP)
 #define MICROPY_PY_WEBREPL                  (MICROPY_PY_LWIP)
 #define MICROPY_PY_LWIP_SOCK_RAW            (MICROPY_PY_LWIP)

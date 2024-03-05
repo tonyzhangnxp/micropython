@@ -156,7 +156,7 @@ ifeq ($(MCU_SERIES),$(filter $(MCU_SERIES), MIMXRT1021 MIMXRT1052 MIMXRT1062 MIM
 SRC_HAL_IMX_C += $(MCU_DIR)/drivers/fsl_usdhc.c
 endif
 
-ifeq ($(MICROPY_HW_ENABLE_CAN),1)
+ifeq ($(MCU_SERIES),$(filter $(MCU_SERIES), MIMXRT1021 MIMXRT1052 MIMXRT1062 MIMXRT1064 MIMXRT1176))
 SRC_HAL_IMX_C += $(MCU_DIR)/drivers/fsl_flexcan.c
 endif
 
@@ -224,6 +224,8 @@ SRC_C += \
 	pybthread.c\
 	gccollect.c\
 	machine2pyb.c\
+	pyb_can.c \
+	machine_can.c \
 
 SHARED_SRC_C += \
 	shared/libc/printf.c \
