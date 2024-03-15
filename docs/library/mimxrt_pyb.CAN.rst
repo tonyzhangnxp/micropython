@@ -12,7 +12,7 @@ voltage levels on the bus.
 Example usage for classic CAN controller in Loopback (transceiver-less) mode::
 
     from machine import CAN
-    can = CAN(0, CAN.LOOPBACK)
+    can = CAN(0, CAN.LOOPBACK,baudrate=100000)
     can.setfilter(0, CAN.LIST32, 0, (123, 124))  # set a filter to receive messages with id=123 and 124
     can.send('message!', 123)   # send a message with id 123
     can.recv(0)                 # receive message on FIFO 0

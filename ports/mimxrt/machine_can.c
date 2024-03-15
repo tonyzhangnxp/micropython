@@ -39,7 +39,7 @@
 #include "fsl_flexcan.h"
 #include "fsl_iomuxc.h"
 
-#if 1//(MICROPY_HW_ENABLE_CAN && (!MICROPY_PY_PYB))
+#if (MICROPY_HW_ENABLE_CAN && (!MICROPY_PY_PYB))
 
 #define CAN_MAX_DATA_FRAME              (8)
 

@@ -21,3 +21,7 @@ JLINK_PATH ?= /media/RT1064-EVK/
 
 deploy: $(BUILD)/firmware.bin
 	cp $< $(JLINK_PATH)
+
+CFLAGS += -DMICROPY_PY_PYB=1
+
+CFLAGS += -DMICROPY_HW_ENABLE_CAN=1

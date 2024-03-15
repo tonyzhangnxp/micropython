@@ -56,7 +56,7 @@
 #define MICROPY_PY_MACHINE_SDCARD_ENTRY
 #endif
 
-#if 1//(MICROPY_HW_ENABLE_CAN && (!MICROPY_PY_PYB))
+#if (MICROPY_HW_ENABLE_CAN && (!MICROPY_PY_PYB))
 #define MICROPY_PY_CAN_ENTRY   { MP_ROM_QSTR(MP_QSTR_CAN),                 MP_ROM_PTR(&machine_can_type) },  
 #else
 #define MICROPY_PY_CAN_ENTRY 
